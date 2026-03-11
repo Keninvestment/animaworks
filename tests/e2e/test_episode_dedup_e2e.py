@@ -53,7 +53,7 @@ class TestFireAndForgetRemoved:
                     fire_and_forget_lines.append(f"Line {i}: {line.strip()}")
 
         assert fire_and_forget_lines == [], (
-            f"Fire-and-forget finalize_session calls found in anima.py:\n"
+            "Fire-and-forget finalize_session calls found in anima.py:\n"
             + "\n".join(fire_and_forget_lines)
         )
 
@@ -93,7 +93,7 @@ class TestDifferentialFinalizationE2E:
         from tests.helpers.mocks import make_litellm_response, patch_litellm
         from core.memory.conversation import ConversationMemory, ConversationTurn
         from core.schemas import ModelConfig
-        
+
         anima_dir = create_anima_dir(data_dir, "e2e-dedup")
         model_config = ModelConfig(
             model="claude-sonnet-4-6",

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, UTC
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -169,9 +169,9 @@ class TestEnsureAware:
         assert aware.tzinfo == ZoneInfo("Asia/Tokyo")
 
     def test_aware_unchanged(self) -> None:
-        utc_dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        utc_dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         result = ensure_aware(utc_dt)
-        assert result.tzinfo == timezone.utc
+        assert result.tzinfo == UTC
         assert result is utc_dt
 
     def test_jst_aware_unchanged(self) -> None:

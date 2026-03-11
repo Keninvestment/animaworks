@@ -17,9 +17,8 @@ behaves identically to the original monolithic run_heartbeat():
 from __future__ import annotations
 
 import inspect
-import textwrap
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from core.time_utils import today_local
@@ -76,7 +75,7 @@ def _attach_failing_stream(dp, error: Exception | None = None):
 
     async def mock_stream(prompt, trigger="manual", **kwargs):
         raise exc
-        yield  # noqa: unreachable — makes this an async generator
+        yield  # noqa
 
     dp.agent.run_cycle_streaming = mock_stream
 

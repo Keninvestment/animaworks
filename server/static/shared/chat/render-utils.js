@@ -205,21 +205,28 @@ export function renderHistoryMessage(msg, opts) {
     const content = rawText ? renderMarkdown(rawText, opts.animaName) : "";
     const toolHtml = renderToolCalls(msg.tool_calls, { escapeHtml, truncateLen: truncLen });
     const imagesHtml = renderImages(msg.images, { animaName: opts.animaName });
+    let thinkingHtml = "";
+    if (msg.thinking_text) {
+      thinkingHtml = `<details class="thinking-block"><summary class="thinking-summary">\u{1F4AD} Thinking</summary><pre class="thinking-content">${escapeHtml(msg.thinking_text)}</pre></details>`;
+    }
     const toLabel = msg.to_person
       ? `<div style="font-size:0.72rem; opacity:0.7; margin-bottom:2px;">→ ${escapeHtml(msg.to_person)}</div>`
       : "";
     const actionsHtml = _bubbleActionsHtml(rawText);
     const dataAttr = rawText ? ` data-raw-text="${_escapeAttr(rawText)}"` : "";
-    const bubble = `<div class="chat-bubble assistant"${dataAttr}>${actionsHtml}${toLabel}${content}${imagesHtml}${toolHtml}${tsHtml}</div>`;
+    const bubble = `<div class="chat-bubble assistant"${dataAttr}>${actionsHtml}${toLabel}${thinkingHtml}${content}${imagesHtml}${toolHtml}${tsHtml}</div>`;
     return _wrapRow("assistant", bubble, _renderAvatar(opts.animaName, avatarMap));
   }
 
-  const fromLabel = msg.from_person && msg.from_person !== "human"
+  const isAnima = msg.from_person && msg.from_person !== "human";
+  const fromLabel = isAnima
     ? `<div style="font-size:0.72rem; opacity:0.7; margin-bottom:2px;">${escapeHtml(msg.from_person)}</div>`
     : "";
   const userContent = _stripVoiceSuffix(msg.content || "");
-  const bubble = `<div class="chat-bubble user">${fromLabel}<div class="chat-text">${escapeHtml(userContent)}</div>${tsHtml}</div>`;
-  const isAnima = msg.from_person && msg.from_person !== "human";
+  const contentHtml = isAnima
+    ? renderMarkdown(userContent)
+    : `<div class="chat-text">${escapeHtml(userContent)}</div>`;
+  const bubble = `<div class="chat-bubble user">${fromLabel}${contentHtml}${tsHtml}</div>`;
   const avatarHtml = _renderAvatar(isAnima ? msg.from_person : null, avatarMap);
   return _wrapRow("user", bubble, avatarHtml);
 }
@@ -366,6 +373,83 @@ export function bindToolCallHandlers(container) {
 }
 
 /**
+ * Render a collapsible background session group (heartbeat/cron/task).
+ * @param {Array} sessions - Array of session objects (1 for heartbeat/task, possibly multiple for grouped cron)
+ * @param {string} type - "heartbeat" | "cron" | "task"
+ * @param {object} opts - Same opts as renderHistoryMessage (escapeHtml, renderMarkdown, smartTimestamp)
+ * @returns {string} HTML string
+ */
+export function renderCollapsibleSession(sessions, type, opts) {
+  const { escapeHtml, renderMarkdown, smartTimestamp } = opts;
+
+  const allMessages = sessions.flatMap((s) => s.messages || []);
+  if (allMessages.length === 0) return "";
+
+  const startTs = sessions[0]?.session_start;
+  const endTs = sessions[sessions.length - 1]?.session_end;
+  const timeLabel = startTs ? smartTimestamp(startTs) : "";
+  const timeRange =
+    startTs && endTs && startTs !== endTs
+      ? `${smartTimestamp(startTs)} \u301C ${smartTimestamp(endTs)}`
+      : timeLabel;
+
+  let headerLabel = "";
+  if (type === "heartbeat") {
+    headerLabel = t("chat.heartbeat_activity");
+  } else if (type === "cron") {
+    headerLabel = t("chat.bg_tasks_count", { count: allMessages.length });
+  } else if (type === "task") {
+    headerLabel = t("chat.task_exec_activity");
+  }
+
+  let bodyHtml = "";
+  if (type === "heartbeat" || type === "task") {
+    for (const msg of allMessages) {
+      const content = msg.content || "";
+      if (content) {
+        bodyHtml += `<div class="bg-session-message">${renderMarkdown(escapeHtml(content))}</div>`;
+      }
+    }
+  } else {
+    for (const msg of allMessages) {
+      const ts = msg.ts ? smartTimestamp(msg.ts) : "";
+      const tsHtml = ts ? `<span class="bg-session-item-ts">${escapeHtml(ts)}</span>` : "";
+      bodyHtml += `<div class="bg-session-item">${escapeHtml(msg.content || "")}${tsHtml}</div>`;
+    }
+  }
+
+  return (
+    `<div class="bg-session-group bg-session-group--${type}">` +
+    `<div class="bg-session-header bg-session-header--${type}">` +
+    `<span class="bg-session-chevron">\u25B6</span>` +
+    `<span class="bg-session-label">${escapeHtml(headerLabel)}</span>` +
+    `<span class="bg-session-time">${escapeHtml(timeRange)}</span>` +
+    `</div>` +
+    `<div class="bg-session-body" style="display:none;">${bodyHtml}</div>` +
+    `</div>`
+  );
+}
+
+/**
+ * Bind expand/collapse handlers for collapsible background session groups.
+ * @param {HTMLElement|null} container
+ */
+export function bindCollapsibleSessionHandlers(container) {
+  if (!container) return;
+  container.querySelectorAll(".bg-session-header").forEach((header) => {
+    header.addEventListener("click", () => {
+      const group = header.parentElement;
+      if (!group) return;
+      const body = group.querySelector(".bg-session-body");
+      if (!body) return;
+      const isExpanded = group.classList.contains("expanded");
+      group.classList.toggle("expanded", !isExpanded);
+      body.style.display = isExpanded ? "none" : "";
+    });
+  });
+}
+
+/**
  * Render a live (current session) chat bubble to HTML.
  * @param {object} msg - Live message with role, text, streaming, activeTool, images, etc.
  * @param {object} opts
@@ -411,6 +495,8 @@ export function renderLiveBubble(msg, opts) {
   let thinkingHtml = "";
   if (msg.thinking && msg.thinkingText) {
     thinkingHtml = `<div class="thinking-inline-preview">${escapeHtml(msg.thinkingText)}</div>`;
+  } else if (!msg.thinking && msg.thinkingText && !msg.streaming) {
+    thinkingHtml = `<details class="thinking-block"><summary class="thinking-summary">\u{1F4AD} Thinking</summary><pre class="thinking-content">${escapeHtml(msg.thinkingText)}</pre></details>`;
   }
 
   const streamingCursor = '<span class="streaming-cursor">▌</span>';
@@ -469,12 +555,14 @@ export function updateStreamingZone(bubble, msg, opts, zone = "all") {
   if (!bubble) return;
   if (zone === "all") {
     bubble.innerHTML = renderStreamingBubbleInner(msg, opts);
+    _autoScrollThinking(bubble);
     return;
   }
   const sel = `.streaming-zone-${zone}`;
   const el = bubble.querySelector(sel);
   if (!el) {
     bubble.innerHTML = renderStreamingBubbleInner(msg, opts);
+    _autoScrollThinking(bubble);
     return;
   }
   if (zone === "subordinate") {
@@ -504,7 +592,17 @@ export function updateStreamingZone(bubble, msg, opts, zone = "all") {
     thinking: _renderThinkingZoneContent,
   };
   const fn = renderers[zone];
-  if (fn) el.innerHTML = fn(msg, opts);
+  if (fn) {
+    el.innerHTML = fn(msg, opts);
+    if (zone === "thinking") _autoScrollThinking(el);
+  }
+}
+
+function _autoScrollThinking(container) {
+  requestAnimationFrame(() => {
+    const el = container.querySelector(".thinking-inline-preview");
+    if (el) el.scrollTop = el.scrollHeight;
+  });
 }
 
 function _renderTextZoneContent(msg, opts) {
@@ -627,48 +725,59 @@ function _patchSubordinateZone(container, msg, opts) {
 function _renderThinkingZoneContent(msg, opts) {
   const { escapeHtml } = opts;
   const visibleThinking = msg._displayThinkingText || msg.thinkingText;
+
+  // ストリーミング中: インラインプレビュー
   if (msg.thinking && visibleThinking) {
     return `<div class="thinking-inline-preview">${escapeHtml(visibleThinking)}</div>`;
   }
+
+  // 完了後: 折りたたみブロック（thinkingTextが残っている場合）
+  if (!msg.thinking && msg.thinkingText && msg.streaming === false) {
+    return `<details class="thinking-block"><summary class="thinking-summary">\u{1F4AD} Thinking</summary><pre class="thinking-content">${escapeHtml(msg.thinkingText)}</pre></details>`;
+  }
+
   return "";
 }
 
 /**
- * Render a collapsible tool activity timeline.
+ * Render a compact tool activity timeline.
+ * Running tools are always visible; completed tools are collapsed behind a count.
  */
 function renderToolActivityTimeline(history, activeTool, { escapeHtml, labels }) {
-  const completedCount = history.filter(e => e.completed).length;
-  const totalCount = history.length;
+  const completedEntries = history.filter(e => e.completed);
+  const runningEntries = history.filter(e => !e.completed);
+  const completedCount = completedEntries.length;
 
-  let items = "";
-  for (const entry of history) {
-    if (entry.completed) {
+  let runningHtml = "";
+  for (const entry of runningEntries) {
+    const detailSpan = entry.detail
+      ? `<span class="tool-activity-detail">${escapeHtml(entry.detail.slice(0, 120))}</span>`
+      : "";
+    runningHtml += `<div class="tool-activity-item tool-activity-item--running"><span class="tool-spinner"></span><span class="tool-activity-name">${escapeHtml(entry.tool_name)}</span>${detailSpan}<span class="tool-activity-dur">${t("chat.tool_running_label")}</span></div>`;
+  }
+
+  const summaryLabel = activeTool
+    ? t("chat.tools_progress", { tool: activeTool, completed: completedCount, total: history.length })
+    : t("chat.tools_completed", { count: completedCount });
+
+  let completedHtml = "";
+  if (completedCount > 0) {
+    let completedItems = "";
+    for (const entry of completedEntries) {
       const icon = entry.is_error
-        ? '<span class="tool-activity-icon tool-activity-error">✗</span>'
-        : '<span class="tool-activity-icon tool-activity-ok">✓</span>';
+        ? '<span class="tool-activity-icon tool-activity-error">\u2717</span>'
+        : '<span class="tool-activity-icon tool-activity-ok">\u2713</span>';
       const dur = entry.duration_ms != null ? `<span class="tool-activity-dur">${_formatDuration(entry.duration_ms)}</span>` : "";
       const summary = entry.result_summary
         ? `<span class="tool-activity-summary">${escapeHtml(entry.result_summary.slice(0, 120))}</span>`
         : "";
-      items += `<div class="tool-activity-item${entry.is_error ? " tool-activity-item--error" : ""}">${icon}<span class="tool-activity-name">${escapeHtml(entry.tool_name)}</span>${dur}${summary}</div>`;
-    } else {
-      const detailSpan = entry.detail
-        ? `<span class="tool-activity-detail">${escapeHtml(entry.detail.slice(0, 120))}</span>`
-        : "";
-      items += `<div class="tool-activity-item tool-activity-item--running"><span class="tool-spinner"></span><span class="tool-activity-name">${escapeHtml(entry.tool_name)}</span>${detailSpan}<span class="tool-activity-dur">${t("chat.tool_running_label")}</span></div>`;
+      completedItems += `<div class="tool-activity-item${entry.is_error ? " tool-activity-item--error" : ""}">${icon}<span class="tool-activity-name">${escapeHtml(entry.tool_name)}</span>${dur}${summary}</div>`;
     }
+    const completedLabel = t("chat.tools_completed_details", { count: completedCount });
+    completedHtml = `<details class="tool-activity-completed"><summary class="tool-activity-completed-summary">${completedLabel}</summary><div class="tool-activity-list">${completedItems}</div></details>`;
   }
 
-  const summaryLabel = activeTool
-    ? t("chat.tools_progress", { tool: activeTool, completed: completedCount, total: totalCount })
-    : t("chat.tools_completed", { count: completedCount });
-
-  return `<div class="tool-activity-timeline">
-    <details${activeTool ? " open" : ""}>
-      <summary class="tool-activity-header"><span class="tool-spinner"${activeTool ? "" : ' style="display:none"'}></span>${summaryLabel}</summary>
-      <div class="tool-activity-list">${items}</div>
-    </details>
-  </div>`;
+  return `<div class="tool-activity-timeline"><div class="tool-activity-header"><span class="tool-spinner"${activeTool ? "" : ' style="display:none"'}></span>${summaryLabel}</div>${runningHtml}${completedHtml}</div>`;
 }
 
 function _formatDuration(ms) {

@@ -58,6 +58,8 @@ class ConversationMixin:
         "heartbeat_start",
         "heartbeat_end",
         "cron_executed",
+        "task_exec_start",
+        "task_exec_end",
         "error",
     }
 
@@ -99,6 +101,16 @@ class ConversationMixin:
         )
         messages = self._entries_to_messages(entries)
 
+        if len(messages) <= limit and entries:
+            entries = self._load_conversation_entries(
+                before=before,
+                limit=limit,
+                thread_id=thread_id,
+                strict_thread=strict_thread,
+                _target_multiplier=15,
+            )
+            messages = self._entries_to_messages(entries)
+
         has_more = len(messages) > limit
         if has_more:
             messages = messages[-limit:]
@@ -122,18 +134,19 @@ class ConversationMixin:
         limit: int = 50,
         thread_id: str | None = None,
         strict_thread: bool = False,
+        _target_multiplier: int = 3,
     ) -> list[ActivityEntry]:
         """Load conversation-relevant entries, scanning backwards.
 
         Returns entries in chronological order.  Scans enough days to
-        collect at least ``limit * 3`` raw entries (to account for
-        tool_use/tool_result pairs being folded into messages).
+        collect at least ``limit * _target_multiplier`` raw entries (to
+        account for tool_use/tool_result pairs being folded into messages).
 
         When *thread_id* is given, only entries whose ``meta.thread_id``
         matches are returned.  Entries without the field are treated as
         belonging to ``"default"`` unless *strict_thread* is True.
         """
-        target_raw = limit * 3 + 50
+        target_raw = limit * _target_multiplier + 50
         entries: list[ActivityEntry] = []
         today = now_local().date()
         max_scan_days = 365
@@ -324,6 +337,32 @@ class ConversationMixin:
                     }
                 )
 
+            elif e.type == "task_exec_start":
+                self._flush_tool_calls(messages, pending_tool_calls)
+                messages.append(
+                    {
+                        "ts": e.ts,
+                        "role": "system",
+                        "content": e.summary or t("activity.task_exec_start_label"),
+                        "from_person": "",
+                        "tool_calls": [],
+                        "_trigger": "task",
+                    }
+                )
+
+            elif e.type == "task_exec_end":
+                self._flush_tool_calls(messages, pending_tool_calls)
+                messages.append(
+                    {
+                        "ts": e.ts,
+                        "role": "system",
+                        "content": e.summary or e.content or t("activity.task_exec_end_label"),
+                        "from_person": "",
+                        "tool_calls": [],
+                        "_trigger": "task",
+                    }
+                )
+
             elif e.type == "error":
                 self._flush_tool_calls(messages, pending_tool_calls)
                 messages.append(
@@ -360,7 +399,15 @@ class ConversationMixin:
         messages: list[dict[str, Any]],
         gap_minutes: int,
     ) -> list[dict[str, Any]]:
-        """Group messages into sessions based on time gaps."""
+        """Group messages into sessions based on time gaps and trigger changes.
+
+        Sessions are split when either:
+        - The time gap between consecutive messages exceeds *gap_minutes*, or
+        - The trigger type changes (e.g. heartbeat → chat, chat → cron).
+
+        This ensures background sessions (heartbeat/cron/task) never contain
+        chat messages and vice versa.
+        """
         if not messages:
             return []
 
@@ -371,12 +418,14 @@ class ConversationMixin:
 
         for msg in messages:
             msg_trigger = msg.pop("_trigger", None)
-            if msg_trigger:
-                current_trigger = msg_trigger
+            effective_trigger = msg_trigger or "chat"
 
             if current_msgs:
                 prev_ts = current_msgs[-1]["ts"]
-                if time_diff(prev_ts, msg["ts"]) >= gap_seconds:
+                trigger_changed = effective_trigger != current_trigger
+                time_gap = time_diff(prev_ts, msg["ts"]) >= gap_seconds
+
+                if trigger_changed or time_gap:
                     sessions.append(
                         {
                             "session_start": current_msgs[0]["ts"],
@@ -386,8 +435,8 @@ class ConversationMixin:
                         }
                     )
                     current_msgs = []
-                    current_trigger = msg_trigger or "chat"
 
+            current_trigger = effective_trigger
             current_msgs.append(msg)
 
         if current_msgs:

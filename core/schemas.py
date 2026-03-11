@@ -93,6 +93,8 @@ class ModelConfig(BaseModel):
     background_credential: str | None = None  # credential for background_model
     extra_keys: dict[str, str] = {}  # provider-specific credential keys (e.g. api_version, vertex_project)
     mode_s_auth: str | None = None  # Mode S auth: "max"|"api"|"bedrock"|"vertex"|None(=max)
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
 
 
 class AnimaConfig(BaseModel):
@@ -107,7 +109,7 @@ class AnimaConfig(BaseModel):
     model_config_data: ModelConfig = Field(default_factory=ModelConfig)
 
 
-EXTERNAL_PLATFORM_SOURCES: frozenset[str] = frozenset({"slack", "chatwork"})
+EXTERNAL_PLATFORM_SOURCES: frozenset[str] = frozenset({"slack", "chatwork", "googlechat"})
 """Message ``source`` values representing external platforms (Slack, Chatwork, etc.)."""
 
 
@@ -124,7 +126,7 @@ class Message(BaseModel):
     timestamp: datetime = Field(default_factory=now_local)
 
     # External messaging integration
-    source: str = "anima"  # "anima" | "human" | "slack" | "chatwork"
+    source: str = "anima"  # "anima" | "human" | "slack" | "chatwork" | "googlechat"
     source_message_id: str = ""  # message ID on external platform
     external_user_id: str = ""  # user ID on external platform
     external_channel_id: str = ""  # channel/room ID on external platform

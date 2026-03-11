@@ -28,6 +28,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from core.i18n import t
+
+_RE_INVALID_TOOL_ID = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _sanitize_tool_id(tool_id: str) -> str:
+    """Sanitize tool_use_id for Bedrock Converse API compatibility.
+
+    Bedrock requires tool_use_id to match ``[a-zA-Z0-9_-]+``.
+    Other providers (OpenAI/Kimi) may produce IDs containing dots,
+    colons, etc.  Replace any invalid character with ``_``.
+    """
+    return _RE_INVALID_TOOL_ID.sub("_", tool_id) if tool_id else tool_id
+
+
 from core.memory._io import atomic_write_text
 from core.paths import load_prompt
 from core.schemas import ModelConfig
@@ -550,7 +564,7 @@ class ConversationMemory:
                             break
                         tool_calls.append(
                             {
-                                "id": tr.tool_id or f"hist_{rendered_tool_count}",
+                                "id": _sanitize_tool_id(tr.tool_id or f"hist_{rendered_tool_count}"),
                                 "type": "function",
                                 "function": {
                                     "name": tr.tool_name,
@@ -588,7 +602,7 @@ class ConversationMemory:
                     for tr in turn.tool_records:
                         if rendered_tool_count >= _MAX_RENDERED_TOOL_RECORDS:
                             break
-                        tid = tr.tool_id or f"hist_{rendered_tool_count}"
+                        tid = _sanitize_tool_id(tr.tool_id or f"hist_{rendered_tool_count}")
                         content_blocks.append(
                             {
                                 "type": "tool_use",

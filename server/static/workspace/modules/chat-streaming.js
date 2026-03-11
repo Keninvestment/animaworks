@@ -133,7 +133,9 @@ export function updateStreamingBubble(msg, zone = "all") {
   const bubble = bubbles[bubbles.length - 1];
   if (!bubble) return;
   updateStreamingZone(bubble, msg, renderOpts(), zone);
-  requestAnimationFrame(() => { dom.convMessages.scrollTop = dom.convMessages.scrollHeight; });
+  if (zone !== "thinking") {
+    requestAnimationFrame(() => { dom.convMessages.scrollTop = dom.convMessages.scrollHeight; });
+  }
 }
 
 export function submitConversation() {
@@ -282,7 +284,7 @@ async function _sendConversation(text, overrideImages = null) {
       onHeartbeatRelayStart: () => { if (streamingMsg?.streaming) { streamingMsg.heartbeatRelay = true; streamingMsg.heartbeatText = ""; scheduleStreamingUpdate(streamingMsg, "text"); } },
       onHeartbeatRelay: ({ text: t }) => { if (streamingMsg?.streaming) { streamingMsg.heartbeatText = (streamingMsg.heartbeatText || "") + t; scheduleStreamingUpdate(streamingMsg, "text"); } },
       onHeartbeatRelayDone: () => { if (streamingMsg?.streaming) { streamingMsg.heartbeatRelay = false; streamingMsg.heartbeatText = ""; streamingMsg.afterHeartbeatRelay = true; scheduleStreamingUpdate(streamingMsg, "text"); } },
-      onDone: ({ summary, emotion, images: di }) => {
+      onDone: ({ summary, emotion, images: di, thinkingSummary }) => {
         if (_textAnimator) _textAnimator.flush();
         if (_thinkingAnimator) { _thinkingAnimator.flush(); _thinkingAnimator = null; }
         if (streamingMsg) {
@@ -290,6 +292,9 @@ async function _sendConversation(text, overrideImages = null) {
           delete streamingMsg._displayText;
           delete streamingMsg._displayThinkingText;
           streamingMsg.images = di || [];
+          if (!streamingMsg.thinkingText && thinkingSummary) {
+            streamingMsg.thinkingText = thinkingSummary;
+          }
           streamingMsg.streaming = false; streamingMsg.activeTool = null;
           updateStreamingBubble(streamingMsg);
         }
@@ -413,7 +418,7 @@ export async function resumeConversationStream(animaName) {
         streamingMsg.thinking = false;
         updateStreamingBubble(streamingMsg, "thinking");
       },
-      onDone: ({ summary, emotion, images: di }) => {
+      onDone: ({ summary, emotion, images: di, thinkingSummary }) => {
         if (_resumeAnimator) _resumeAnimator.flush();
         if (_resumeThinkingAnimator) { _resumeThinkingAnimator.flush(); _resumeThinkingAnimator = null; }
         if (streamingMsg) {
@@ -421,6 +426,9 @@ export async function resumeConversationStream(animaName) {
           delete streamingMsg._displayText;
           delete streamingMsg._displayThinkingText;
           streamingMsg.images = di || [];
+          if (!streamingMsg.thinkingText && thinkingSummary) {
+            streamingMsg.thinkingText = thinkingSummary;
+          }
           streamingMsg.streaming = false; streamingMsg.activeTool = null;
         }
         setExpression(emotion); setTimeout(() => setExpression("neutral"), 3000);

@@ -5,14 +5,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 from core.time_utils import today_local
 
 from core.messenger import Messenger
-from core.memory.manager import MemoryManager
 from core.tooling.handler import active_session_type
 
 
@@ -99,6 +96,7 @@ class TestInboxMessageEpisodeE2E:
             dp.agent._tool_handler.set_active_session_type = lambda st: active_session_type.set(st)
 
             async def mock_stream(prompt, trigger="manual", **kwargs):
+                yield {"type": "text_delta", "text": "Processing message"}
                 yield {
                     "type": "cycle_done",
                     "cycle_result": {

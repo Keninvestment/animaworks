@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 from server.stream_registry import StreamRegistry
@@ -348,6 +347,7 @@ class TestChatStream:
 
         async def mock_stream(msg, from_person="human", intent=""):
             raise RuntimeError("unexpected error")
+            yield  # pragma: no cover  # make this an async generator
 
         alice.process_message_stream = mock_stream
 
@@ -360,7 +360,7 @@ class TestChatStream:
             )
         body = resp.text
         assert "event: error" in body
-        assert "Internal server error" in body
+        assert "STREAM_ERROR" in body
 
 
 # ── POST /animas/{name}/greet ──────────────────────────
