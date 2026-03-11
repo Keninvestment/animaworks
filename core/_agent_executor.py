@@ -76,40 +76,13 @@ class ExecutorFactoryMixin:
                     interrupt_event=self._interrupt_event,
                 )
             except ImportError:
-                logger.warning(
-                    "AgentSDKExecutor unavailable (claude_agent_sdk not installed), trying AnthropicFallbackExecutor"
-                )
-
-            # ── Try Anthropic SDK fallback ────────────────────
-            try:
-                import anthropic  # noqa: F401
-
-                logger.info("Using AnthropicFallbackExecutor for Claude model")
-                return AnthropicFallbackExecutor(
-                    model_config=self.model_config,
-                    anima_dir=self.anima_dir,
-                    tool_handler=self._tool_handler,
-                    tool_registry=self._tool_registry,
-                    memory=self.memory,
-                    personal_tools=self._personal_tools,
-                    interrupt_event=self._interrupt_event,
-                )
-            except ImportError:
-                logger.warning(
-                    "AnthropicFallbackExecutor also unavailable (anthropic not installed), "
-                    "falling back to LiteLLM with anthropic provider"
-                )
-
-            # ── Last resort: LiteLLM with anthropic provider ─
-            return LiteLLMExecutor(
-                model_config=self.model_config,
-                anima_dir=self.anima_dir,
-                tool_handler=self._tool_handler,
-                tool_registry=self._tool_registry,
-                memory=self.memory,
-                personal_tools=self._personal_tools,
-                interrupt_event=self._interrupt_event,
-            )
+                raise RuntimeError(
+                    "BILLING GUARD: claude_agent_sdk is not installed in this Python environment. "
+                    "Without it, AnimaWorks would silently fall back to direct Anthropic API calls "
+                    "which incur per-token billing. "
+                    "Fix: activate the correct venv (animaworks/.venv) or install claude-agent-sdk. "
+                    "To intentionally use API billing, set mode_s_auth='api' in your Anima config."
+                ) from None
 
         if mode == "c":
             try:
@@ -211,7 +184,10 @@ class ExecutorFactoryMixin:
         """Create an AnthropicFallbackExecutor for when S mode SDK can't handle the prompt."""
         from core.execution import AnthropicFallbackExecutor
 
-        logger.info("Creating AnthropicFallbackExecutor for oversized prompt")
+        logger.warning(
+            "BILLING WARNING: Creating AnthropicFallbackExecutor for oversized prompt. "
+            "This uses direct Anthropic API calls (per-token billing, NOT Max plan)."
+        )
         return AnthropicFallbackExecutor(
             model_config=self.model_config,
             anima_dir=self.anima_dir,
