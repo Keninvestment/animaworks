@@ -282,9 +282,9 @@ async def one_shot_completion(
 ) -> str | None:
     """Execute a one-shot LLM completion with automatic backend selection.
 
-    Fallback chain:
-      1. LiteLLM (if API key available) -- fast, no subprocess
-      2. Agent SDK one-shot (if installed and Anthropic model) -- Max plan compatible
+    Fallback chain (Agent SDK preferred to minimize API costs):
+      1. Agent SDK one-shot (if installed and Anthropic model) -- Max plan, no extra cost
+      2. LiteLLM (if API key available) -- fallback, incurs API charges
       3. Return None -- caller handles gracefully
 
     Args:
@@ -299,8 +299,25 @@ async def one_shot_completion(
     llm_kwargs = get_consolidation_llm_kwargs()
     resolved_model = model or llm_kwargs["model"]
 
-    # 1. Try LiteLLM
+    # 1. Try Agent SDK first (Anthropic models only) -- Max plan, zero additional cost
+    if _is_anthropic_model(resolved_model):
+        logger.info("one_shot_completion: Agent SDK preferred (Max plan, no extra cost)")
+        try:
+            result = await _try_agent_sdk(
+                prompt,
+                system_prompt=system_prompt,
+                model=resolved_model,
+                max_tokens=max_tokens,
+            )
+            if result:
+                return result
+            logger.warning("Agent SDK returned empty result, falling back to LiteLLM")
+        except Exception as e:
+            logger.warning("Agent SDK one-shot failed (%s), falling back to LiteLLM", e)
+
+    # 2. Fallback to LiteLLM (incurs API charges)
     try:
+        logger.info("one_shot_completion: falling back to LiteLLM (API charges apply)")
         result = await _try_litellm(
             prompt,
             system_prompt=system_prompt,
@@ -311,18 +328,6 @@ async def one_shot_completion(
         if result:
             return result
     except Exception as e:
-        logger.warning("LiteLLM one-shot failed (%s), trying Agent SDK fallback", e)
-
-    # 2. Try Agent SDK (Anthropic models only)
-    if _is_anthropic_model(resolved_model):
-        try:
-            return await _try_agent_sdk(
-                prompt,
-                system_prompt=system_prompt,
-                model=resolved_model,
-                max_tokens=max_tokens,
-            )
-        except Exception as e:
-            logger.warning("Agent SDK one-shot fallback also failed: %s", e)
+        logger.warning("LiteLLM one-shot fallback also failed: %s", e)
 
     return None
